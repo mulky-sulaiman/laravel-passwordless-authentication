@@ -8,7 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use Laravel\Fortify\Events\TwoFactorAuthenticationChallenged;
 use NorbyBaru\Passwordless\CanUsePasswordlessAuthenticatable;
 use NorbyBaru\Passwordless\Facades\Passwordless;
 use NorbyBaru\Passwordless\MagicLink;
@@ -35,9 +37,13 @@ trait PasswordlessAuth
                 ->withErrors(['email' => trans($response)]);
         }
 
-        $this->authenticateUser($response);
+        $authenticated = $this->authenticateUser($response);
 
-        if ($response = $this->authenticatedResponse($request, auth()->user())) {
+        if (! $authenticated) {
+            return redirect()->route('two-factor.login');
+        }
+
+        if ($response = $this->authenticatedResponse($request, Auth::user())) {
             return $response;
         }
 
@@ -84,7 +90,13 @@ trait PasswordlessAuth
 
     public function authenticateUser($user)
     {
-        auth()->login($user);
+        if ($user->hasEnabledTwoFactorAuthentication()) {
+            session()->put('login.id', $user->id);
+            session()->put('login.remember', !empty($user->remember_token));
+            TwoFactorAuthenticationChallenged::dispatch($user);
+            return false;
+        }
+        return Auth::login($user);
     }
 
     /**
